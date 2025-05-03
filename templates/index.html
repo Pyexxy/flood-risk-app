@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flood Risk Assessment</title>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.css" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <style>
+        :root {
+            --primary-bg: #d5ebe8; /* Theme background */
+            --sidebar-bg: #e8f4f2; /* Sidebar */
+            --input-bg: #a8d5d1; /* Inputs */
+            --button-bg: #4a9e94; /* Button */
+            --button-hover: #3d857c; /* Button hover */
+            --input-hover: #92c9c3; /* Input hover */
+            --text-color: #2e2e2e; /* Dark text */
+            --accent-color: #4a9e94; /* Emphasis */
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Arial', sans-serif;
+            background: var(--primary-bg);
+            color: var(--text-color);
+        }
+
+        #map {
+            position: absolute;
+            top: 50px;
+            bottom: 0;
+            width: 70%;
+            transition: all 0.3s ease;
+        }
+
+        #title {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            background: linear-gradient(90deg, var(--input-bg), #7fc4bf);
+            padding: 15px 0;
+            margin: 0;
+            color: var(--text-color);
+            font-size: 20px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+        }
+
+        #sidebar {
+            position: absolute;
+            right: 0;
+            top: 50px;
+            width: 30%;
+            height: calc(100% - 50px);
+            padding: 10px; /* Reduced from 15px */
+            background: var(--sidebar-bg);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-shadow: -3px 0 10px rgba(0, 0, 0, 0.3);
+        }
+
+        label, button, select, input[type="date"] {
+            display: block;
+            margin: 8px 0; /* Reduced from 10px */
+            padding: 6px; /* Reduced from 8px */
+            font-size: 12px; /* Reduced from 14px */
+            width: 100%;
+            border: none;
+            border-radius: 5px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            transition: background 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        /* Make specific labels bold */
+        label[for="county"], label[for="start-date"], label[for="end-date"], label[for="basemap"] {
+            font-weight: bold;
+        }
+
+        select, input[type="date"] {
+            appearance: none;
+        }
+
+        button {
+            background: var(--button-bg);
+            color: #fff;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: var(--button-hover);
+        }
+
+        select:hover, input[type="date"]:hover {
+            background: var(--input-hover);
+        }
+
+        #results {
+            font-size: 12px; /* Reduced from 14px */
+        }
+
+        #results p {
+            margin: 4px 0; /* Reduced from 5px */
+        }
+
+        #results span {
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+
+        #loading {
+            display: none;
+            text-align: center;
+            margin: 8px 0; /* Reduced from 10px */
+            font-size: 12px; /* Unchanged */
+            color: var(--text-color);
+        }
+
+        #loading::before {
+            content: '';
+            display: inline-block;
+            width: 10px; /* Reduced from 12px */
+            height: 10px; /* Reduced from 12px */
+            border: 2px solid var(--input-bg);
+            border-top: 2px solid var(--button-bg);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #legend {
+            position: absolute;
+            bottom: 20px; /* Moved up from 10px */
+            left: 10px;
+            background: rgba(213, 235, 232, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+            font-size: 12px;
+            color: var(--text-color);
+            width: 200px;
+            height: 150px;
+            box-sizing: border-box;
+            overflow: auto;
+            z-index: 1;
+        }
+
+        #flood-risk-legend {
+            position: absolute;
+            bottom: 20px; /* Moved up from 10px */
+            left: 10px;
+            background: rgba(213, 235, 232, 1);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+            font-size: 12px;
+            color: var(--text-color);
+            width: 200px;
+            height: 150px;
+            box-sizing: border-box;
+            overflow: auto;
+            z-index: 2;
+            display: none;
+        }
+
+        .legend-item, .flood-risk-legend-item {
+            display: flex;
+            align-items: center;
+            margin: 3px 0;
+        }
+
+        .legend-color, .flood-risk-color {
+            width: 15px;
+            height: 15px;
+            margin-right: 8px;
+            display: inline-block;
+        }
+
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1 id="title">Flood Scope - Kenya</h1>
+    <div id="map"></div>
+    <div id="sidebar">
+        <div>
+            <label for="county">County</label>
+            <select id="county">
+                {% for county in counties %}
+                <option value="{{ county }}">{{ county }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="start-date">Start Date</label>
+            <input type="date" id="start-date" value="2024-01-01">
+
+            <label for="end-date">End Date</label>
+            <input type="date" id="end-date" value="2024-12-31">
+
+            <label for="basemap">Basemap</label>
+            <select id="basemap">
+                <option value="mapbox://styles/mapbox/streets-v11" selected>Streets</option>
+                <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+                <option value="mapbox://styles/mapbox/outdoors-v11">Outdoors</option>
+                <option value="mapbox://styles/mapbox/light-v10">Light</option>
+                <option value="mapbox://styles/mapbox/dark-v10">Dark</option>
+            </select>
+
+            <button id="update-btn">Update</button>
+
+            <label>
+                <input type="checkbox" id="subcounty-toggle"> Subcounties
+            </label>
+            <label>
+                <input type="checkbox" id="flood-risk-toggle"> Flood Risk Map
+            </label>
+        </div>
+
+        <div id="results">
+            <p>Flooded Area: <span id="flooded-area">0</span> km²</p>
+            <p>Total Buildings: <span id="total-buildings">0</span></p>
+            <p>Flooded Buildings: <span id="flooded-buildings">0</span></p>
+            <p>Farmland Area: <span id="farmland-area">0</span> km²</p>
+            <p>Flooded Farmland: <span id="flooded-farmland-area">0</span> km²</p>
+        </div>
+
+        <div id="loading">Loading...</div>
+    </div>
+
+    <div id="legend"></div>
+    <div id="flood-risk-legend"></div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            mapboxToken: 'pk.eyJ1IjoicHlleHh5IiwiYSI6ImNtODZqMHM5ajA0YncybHNjdmpmdDQ4YWkifQ.KSy_Cob-cPohMDNTRvtEvA',
+            defaultCenter: [36.0, 0.7], // Baringo
+            defaultZoom: 8,
+            layerConfig: [
+                { id: 'flood', source: 'flood-source', type: 'raster', urlKey: 'flood_layer_url', opacity: 0.7, color: 'red' },
+                { id: 'farmland', source: 'farmland-source', type: 'raster', urlKey: 'farmland_layer_url', opacity: 0.6, color: 'green' },
+                { id: 'flooded-farmland', source: 'flooded-farmland-source', type: 'raster', urlKey: 'flooded_farmland_url', opacity: 0.8, color: 'orange' },
+                { id: 'flood-risk', source: 'flood-risk-source', type: 'raster', urlKey: 'flood_risk_url', opacity: 0.7, color: 'yellow' },
+                { id: 'building', source: 'building-source', type: 'circle', urlKey: 'flooded_buildings_geojson', paint: { 'circle-radius': 6, 'circle-color': '#800080', 'circle-opacity': 0.9 } },
+                { id: 'county-boundary', source: 'county-boundary-source', type: 'line', paint: { 'line-color': '#00b7eb', 'line-width': 2, 'line-opacity': 0.8 } }
+            ]
+        };
+
+        // Initialize Map
+        mapboxgl.accessToken = CONFIG.mapboxToken;
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: CONFIG.defaultCenter,
+            zoom: CONFIG.defaultZoom
+        });
+
+        // Store latest flood data to avoid redundant fetches
+        let latestFloodData = null;
+
+        // Utility Functions
+        function showLoading(show) {
+            console.log('Loading:', show);
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function fetchData(endpoint, payload) {
+            return fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(response => {
+                if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+                return response.json();
+            });
+        }
+
+        function removeLayersAndSources() {
+            CONFIG.layerConfig.forEach(layer => {
+                if (map.getLayer(layer.id + '-layer')) map.removeLayer(layer.id + '-layer');
+                if (map.getSource(layer.source)) map.removeSource(layer.source);
+            });
+            ['subcounty-labels', 'subcounty-boundaries'].forEach(layer => {
+                if (map.getLayer(layer)) map.removeLayer(layer);
+            });
+            if (map.getSource('subcounty-source')) map.removeSource('subcounty-source');
+        }
+
+        function addLayer(layer, data) {
+            if (layer.type === 'raster') {
+                map.addSource(layer.source, { type: 'raster', tiles: [data[layer.urlKey]], tileSize: 256 });
+                map.addLayer({ id: layer.id + '-layer', type: 'raster', source: layer.source, paint: { 'raster-opacity': layer.opacity } });
+            } else {
+                map.addSource(layer.source, { type: 'geojson', data: layer.urlKey ? data[layer.urlKey] : data });
+                map.addLayer({ id: layer.id + '-layer', type: layer.type, source: layer.source, paint: layer.paint });
+            }
+        }
+
+        function generateLegend() {
+            const showFloodRisk = document.getElementById('flood-risk-toggle').checked;
+            const legend = document.getElementById('legend');
+            const floodRiskLegend = document.getElementById('flood-risk-legend');
+
+            // General Legend (excluding flood-risk)
+            const layersToShow = CONFIG.layerConfig.filter(layer => layer.id !== 'flood-risk');
+            legend.innerHTML = `
+                <div class="legend-title">Impact Assessment</div>
+                ${layersToShow
+                    .map(layer => {
+                        const style = layer.type === 'line'
+                            ? `border: 2px solid ${layer.paint['line-color']};`
+                            : `background-color: ${layer.paint ? layer.paint['circle-color'] : layer.color}; opacity: ${layer.opacity || 0.9};`;
+                        const label = layer.id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                        return `
+                            <div class="legend-item">
+                                <span class="legend-color" style="${style}"></span>
+                                <span>${label}</span>
+                            </div>
+                        `;
+                    })
+                    .join('')}
+                <div class="legend-item">
+                    <span class="legend-color" style="border: 2px solid purple;"></span>
+                    <span>Subcounty Boundaries</span>
+                </div>
+            `;
+
+            // Flood Risk Legend
+            if (showFloodRisk) {
+                floodRiskLegend.style.display = 'block';
+                floodRiskLegend.innerHTML = `
+                    <div class="legend-title">Flood Risk</div>
+                    <div class="flood-risk-legend-item">
+                        <span class="flood-risk-color" style="background-color: #00FF00;"></span>
+                        <span>Very Low</span>
+                    </div>
+                    <div class="flood-risk-legend-item">
+                        <span class="flood-risk-color" style="background-color: #99FF99;"></span>
+                        <span>Low</span>
+                    </div>
+                    <div class="flood-risk-legend-item">
+                        <span class="flood-risk-color" style="background-color: #FFFF00;"></span>
+                        <span>Moderate</span>
+                    </div>
+                    <div class="flood-risk-legend-item">
+                        <span class="flood-risk-color" style="background-color: #FF9900;"></span>
+                        <span>High</span>
+                    </div>
+                    <div class="flood-risk-legend-item">
+                        <span class="flood-risk-color" style="background-color: #FF0000;"></span>
+                        <span>Very High</span>
+                    </div>
+                `;
+            } else {
+                floodRiskLegend.style.display = 'none';
+                floodRiskLegend.innerHTML = '';
+            }
+        }
+
+        // Event Handlers
+        function updateBasemap() {
+            const basemap = document.getElementById('basemap').value;
+            console.log('Basemap:', basemap);
+            map.setStyle(basemap);
+            map.once('style.load', () => {
+                updateFloodData();
+                toggleSubcountyDisplay();
+                toggleFloodRiskDisplay();
+            });
+        }
+
+        function updateFloodData() {
+            const payload = {
+                county: document.getElementById('county').value,
+                start_date: document.getElementById('start-date').value,
+                end_date: document.getElementById('end-date').value
+            };
+            console.log('Fetching flood data:', payload);
+            showLoading(true);
+
+            Promise.all([
+                fetchData('/flood-data', payload),
+                fetchData('/county-boundary', { county: payload.county })
+            ])
+                .then(([floodData, boundaryData]) => {
+                    console.log('Flood data:', floodData);
+                    latestFloodData = floodData; // Cache the latest flood data
+                    document.getElementById('flooded-area').innerText = floodData.flooded_area_km2;
+                    document.getElementById('total-buildings').innerText = floodData.total_buildings;
+                    document.getElementById('flooded-buildings').innerText = floodData.flooded_buildings;
+                    document.getElementById('farmland-area').innerText = floodData.farmland_area_km2;
+                    document.getElementById('flooded-farmland-area').innerText = floodData.flooded_farmland_area_km2;
+
+                    map.setCenter([floodData.county_center[0], floodData.county_center[1]]);
+                    removeLayersAndSources();
+
+                    // Add all layers except flood-risk (handled by toggleFloodRiskDisplay)
+                    CONFIG.layerConfig.forEach(layer => {
+                        if (layer.id !== 'flood-risk') {
+                            addLayer(layer, layer.id === 'county-boundary' ? boundaryData : floodData);
+                        }
+                    });
+
+                    toggleSubcountyDisplay();
+                    toggleFloodRiskDisplay(); // Ensure flood risk layer is updated
+                    showLoading(false);
+                })
+                .catch(error => {
+                    console.error('Fetch error:', error);
+                    showLoading(false);
+                    alert('Error loading data');
+                });
+        }
+
+        function toggleSubcountyDisplay() {
+            const county = document.getElementById('county').value;
+            const showSubcounties = document.getElementById('subcounty-toggle').checked;
+
+            if (map.getLayer('subcounty-labels')) map.removeLayer('subcounty-labels');
+            if (map.getLayer('subcounty-boundaries')) map.removeLayer('subcounty-boundaries');
+            if (map.getSource('subcounty-source')) map.removeSource('subcounty-source');
+
+            if (showSubcounties) {
+                console.log('Fetching subcounty data for', county);
+                showLoading(true);
+                fetchData('/subcounty-labels', { county })
+                    .then(data => {
+                        if (data.error) throw new Error(data.error);
+                        if (data.features.length === 0) {
+                            console.warn('No subcounties for', county);
+                            alert('No subcounties found');
+                            showLoading(false);
+                            return;
+                        }
+
+                        map.addSource('subcounty-source', { type: 'geojson', data });
+                        map.addLayer({
+                            id: 'subcounty-boundaries',
+                            type: 'line',
+                            source: 'subcounty-source',
+                            paint: { 'line-color': 'purple', 'line-width': 1, 'line-opacity': 0.8 }
+                        });
+                        map.addLayer({
+                            id: 'subcounty-labels',
+                            type: 'symbol',
+                            source: 'subcounty-source',
+                            layout: {
+                                'text-field': ['get', 'ADM2_EN'],
+                                'text-size': 12,
+                                'text-anchor': 'center',
+                                'text-offset': [0, 0],
+                                'text-allow-overlap': false
+                            },
+                            paint: {
+                                'text-color': '#2e2e2e',
+                                'text-halo-color': '#d5ebe8',
+                                'text-halo-width': 1
+                            }
+                        });
+
+                        showLoading(false);
+                    })
+                    .catch(error => {
+                        console.error('Subcounty error:', error);
+                        showLoading(false);
+                        alert('Error loading subcounties');
+                    });
+            }
+        }
+
+        function toggleFloodRiskDisplay() {
+            const showFloodRisk = document.getElementById('flood-risk-toggle').checked;
+            const floodRiskLayer = CONFIG.layerConfig.find(layer => layer.id === 'flood-risk');
+
+            // Remove existing flood risk layer and source
+            if (map.getLayer('flood-risk-layer')) map.removeLayer('flood-risk-layer');
+            if (map.getSource('flood-risk-source')) map.removeSource('flood-risk-source');
+
+            if (showFloodRisk && latestFloodData) {
+                console.log('Adding flood risk layer for county:', document.getElementById('county').value);
+                addLayer(floodRiskLayer, latestFloodData);
+            }
+
+            generateLegend(); // Update both legends
+        }
+
+        // Initialize
+        map.on('load', () => {
+            console.log('Map loaded');
+            generateLegend();
+            updateFloodData();
+            // Add event listeners
+            document.getElementById('basemap').addEventListener('change', updateBasemap);
+            document.getElementById('update-btn').addEventListener('click', updateFloodData);
+            document.getElementById('subcounty-toggle').addEventListener('change', toggleSubcountyDisplay);
+            document.getElementById('flood-risk-toggle').addEventListener('change', toggleFloodRiskDisplay);
+            document.getElementById('county').addEventListener('change', updateFloodData); // Trigger update on county change
+        });
+    </script>
+</body>
+</html>
