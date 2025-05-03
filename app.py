@@ -3,6 +3,9 @@ import ee
 import logging
 from functools import wraps
 import uuid
+import os
+import os
+import json
 
 app = Flask(__name__)
 
@@ -17,7 +20,13 @@ CONFIG = {
 
 def initialize_gee(project_id):
     try:
-        ee.Initialize(project=project_id)
+        import json
+        credentials_json = os.getenv('GEE_SERVICE_ACCOUNT_CREDENTIALS')
+        if credentials_json:
+            credentials = ee.ServiceAccountCredentials(None, key_data=credentials_json)
+            ee.Initialize(credentials=credentials, project=project_id)
+        else:
+            ee.Initialize(project=project_id)
         logger.debug("Google Earth Engine initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize GEE: {str(e)}")
@@ -235,4 +244,4 @@ def county_boundary():
 
 if __name__ == '__main__':
     initialize_gee(CONFIG['gee_project'])
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
