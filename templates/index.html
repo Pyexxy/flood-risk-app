@@ -58,7 +58,7 @@
             top: 50px;
             width: 30%;
             height: calc(100% - 50px);
-            padding: 10px; /* Reduced from 15px */
+            padding: 10px;
             background: var(--sidebar-bg);
             box-sizing: border-box;
             display: flex;
@@ -69,9 +69,9 @@
 
         label, button, select, input[type="date"] {
             display: block;
-            margin: 8px 0; /* Reduced from 10px */
-            padding: 6px; /* Reduced from 8px */
-            font-size: 12px; /* Reduced from 14px */
+            margin: 8px 0;
+            padding: 6px;
+            font-size: 12px;
             width: 100%;
             border: none;
             border-radius: 5px;
@@ -90,6 +90,29 @@
             appearance: none;
         }
 
+        /* Dropdown container for icon positioning */
+        .dropdown-container {
+            position: relative;
+            width: 100%;
+        }
+
+        /* Style for select elements in dropdown containers */
+        .dropdown-container select {
+            padding-right: 24px; /* Space for icon */
+        }
+
+        /* Dropdown icon */
+        .dropdown-container::after {
+            content: '▼';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+            color: var(--text-color);
+            pointer-events: none; /* Prevents icon from interfering with clicks */
+        }
+
         button {
             background: var(--button-bg);
             color: #fff;
@@ -106,11 +129,11 @@
         }
 
         #results {
-            font-size: 12px; /* Reduced from 14px */
+            font-size: 12px;
         }
 
         #results p {
-            margin: 4px 0; /* Reduced from 5px */
+            margin: 4px 0;
         }
 
         #results span {
@@ -121,16 +144,16 @@
         #loading {
             display: none;
             text-align: center;
-            margin: 8px 0; /* Reduced from 10px */
-            font-size: 12px; /* Unchanged */
+            margin: 8px 0;
+            font-size: 12px;
             color: var(--text-color);
         }
 
         #loading::before {
             content: '';
             display: inline-block;
-            width: 10px; /* Reduced from 12px */
-            height: 10px; /* Reduced from 12px */
+            width: 10px;
+            height: 10px;
             border: 2px solid var(--input-bg);
             border-top: 2px solid var(--button-bg);
             border-radius: 50%;
@@ -146,7 +169,7 @@
 
         #legend {
             position: absolute;
-            bottom: 20px; /* Moved up from 10px */
+            bottom: 20px;
             left: 10px;
             background: rgba(213, 235, 232, 0.9);
             padding: 10px;
@@ -163,7 +186,7 @@
 
         #flood-risk-legend {
             position: absolute;
-            bottom: 20px; /* Moved up from 10px */
+            bottom: 20px;
             left: 10px;
             background: rgba(213, 235, 232, 1);
             padding: 10px;
@@ -204,11 +227,13 @@
     <div id="sidebar">
         <div>
             <label for="county">County</label>
-            <select id="county">
-                {% for county in counties %}
-                <option value="{{ county }}">{{ county }}</option>
-                {% endfor %}
-            </select>
+            <div class="dropdown-container">
+                <select id="county">
+                    {% for county in counties %}
+                    <option value="{{ county }}">{{ county }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
             <label for="start-date">Start Date</label>
             <input type="date" id="start-date" value="2024-01-01">
@@ -217,13 +242,15 @@
             <input type="date" id="end-date" value="2024-12-31">
 
             <label for="basemap">Basemap</label>
-            <select id="basemap">
-                <option value="mapbox://styles/mapbox/streets-v11" selected>Streets</option>
-                <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
-                <option value="mapbox://styles/mapbox/outdoors-v11">Outdoors</option>
-                <option value="mapbox://styles/mapbox/light-v10">Light</option>
-                <option value="mapbox://styles/mapbox/dark-v10">Dark</option>
-            </select>
+            <div class="dropdown-container">
+                <select id="basemap">
+                    <option value="mapbox://styles/mapbox/streets-v11" selected>Streets</option>
+                    <option value="mapbox://styles/mapbox/satellite-v9">Satellite</option>
+                    <option value="mapbox://styles/mapbox/outdoors-v11">Outdoors</option>
+                    <option value="mapbox://styles/mapbox/light-v10">Light</option>
+                    <option value="mapbox://styles/mapbox/dark-v10">Dark</option>
+                </select>
+            </div>
 
             <button id="update-btn">Update</button>
 
