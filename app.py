@@ -2,12 +2,11 @@ from flask import Flask, render_template, jsonify, request
 import ee
 import logging
 from functools import wraps
-import uuid
-import os
 import os
 import json
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default-secret-key')
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -15,22 +14,27 @@ logger = logging.getLogger(__name__)
 CONFIG = {
     'gee_project': 'ee-vincentkipyegon',
     'county_dataset': 'projects/ee-vincentkipyegon/assets/KenyaAdminCountyLevel',
-    'subcounty_dataset': 'projects/ee-vincentkipyegon/assets/SubCountyLevel'
+    'subcounty_dataset': 'projects/ee-vincentkipyegon/assets/SubCountyLevel',
+    'mapbox_token': os.environ.get('MAPBOX_ACCESS_TOKEN')
 }
 
-def initialize_gee(project_id):
-    try:
-        import json
-        credentials_json = os.getenv('GEE_SERVICE_ACCOUNT_CREDENTIALS')
-        if credentials_json:
-            credentials = ee.ServiceAccountCredentials(None, key_data=credentials_json)
-            ee.Initialize(credentials=credentials, project=project_id)
-        else:
-            ee.Initialize(project=project_id)
-        logger.debug("Google Earth Engine initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize GEE: {str(e)}")
-        raise SystemExit(f"GEE initialization failed: {str(e)}")
+# Initialize GEE
+try:
+    credentials_json = os.environ.get('GOOGLE_EARTH_ENGINE_CREDENTIALS')
+    if not credentials_json:
+        raise ValueError("GOOGLE_EARTH_ENGINE_CREDENTIALS environment variable is not set")
+    
+    # Parse JSON credentials
+    credentials_dict = json.loads(credentials_json)  # Safely parse JSON string
+    credentials = ee.ServiceAccountCredentials(
+        email=credentials_dict['client_email'],
+        key_data=credentials_json
+    )
+    ee.Initialize(credentials=credentials, project=CONFIG['gee_project'])
+    logger.debug("Google Earth Engine initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize GEE: {str(e)}")
+    raise
 
 def calculate_area(image, roi, scale=30, max_pixels=1e9):
     area_image = ee.Image.pixelArea()
@@ -211,9 +215,13 @@ def handle_errors(f):
 
 @app.route('/')
 def index():
-    counties = ee.FeatureCollection(CONFIG['county_dataset']) \
-        .aggregate_array('ADM1_EN').distinct().sort().getInfo()
-    return render_template('index.html', counties=counties)
+    try:
+        counties = ee.FeatureCollection(CONFIG['county_dataset']) \
+            .aggregate_array('ADM1_EN').distinct().sort().getInfo()
+        return render_template('index.html', counties=counties)
+    except Exception as e:
+        logger.error(f"Error loading counties: {str(e)}")
+        return jsonify({'error': f'Failed to load counties: {str(e)}'}), 500
 
 @app.route('/flood-data', methods=['POST'])
 @handle_errors
@@ -243,6 +251,4 @@ def county_boundary():
     return jsonify(counties.getInfo())
 
 if __name__ == '__main__':
-    initialize_gee(CONFIG['gee_project'])
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-
