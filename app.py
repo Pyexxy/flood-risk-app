@@ -9,6 +9,7 @@ import traceback
 import googleapiclient.errors
 import requests.exceptions
 from datetime import datetime
+from pathlib import Path
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default-secret-key')
@@ -42,15 +43,16 @@ def log_environment():
     logger.info("Environment Variables:")
     logger.info(f"GEE_PROJECT: {CONFIG['gee_project']}")
     logger.info(f"MAPBOX_TOKEN_SET: {bool(CONFIG['mapbox_token'])}")
+    logger.info(f"GEE_CREDENTIALS_SET: {bool(os.environ.get('GEE_CREDENTIALS'))}")
     logger.info(f"FLASK_ENV: {os.getenv('FLASK_ENV', 'production')}")
     logger.info(f"PORT: {os.getenv('PORT', '5000')}")
 
 def initialize_gee(max_retries=3, backoff_factor=2):
-    """Enhanced GEE initialization with detailed logging"""
-    credentials_json = os.environ.get('GOOGLE_EARTH_ENGINE_CREDENTIALS')
+    """Initialize GEE with service account credentials from GEE_CREDENTIALS"""
+    credentials_json = os.environ.get('GEE_CREDENTIALS')
     
     if not credentials_json:
-        logger.critical("GOOGLE_EARTH_ENGINE_CREDENTIALS environment variable not set")
+        logger.critical("GEE_CREDENTIALS environment variable not set")
         return False
     
     logger.info("Attempting GEE initialization...")
@@ -59,17 +61,22 @@ def initialize_gee(max_retries=3, backoff_factor=2):
         try:
             logger.debug(f"Initialization attempt {attempt + 1}/{max_retries}")
             
-            # Write credentials to temporary file for debugging
-            with open('temp_gee_credentials.json', 'w') as f:
-                f.write(credentials_json)
+            # Parse credentials JSON
+            try:
+                credentials_dict = json.loads(credentials_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in GEE_CREDENTIALS: {str(e)}")
+                raise
             
-            credentials_dict = json.loads(credentials_json)
+            if 'client_email' not in credentials_dict:
+                logger.error("GEE_CREDENTIALS missing client_email")
+                raise ValueError("Invalid GEE credentials format")
+            
             credentials = ee.ServiceAccountCredentials(
-                email=credentials_dict['client_email'],
+                email='flood-risk-app@ee-vincentkipyegon.iam.gserviceaccount.com',
                 key_data=credentials_json
             )
             
-            # Initialize without http_timeout
             ee.Initialize(
                 credentials=credentials,
                 project=CONFIG['gee_project'],
@@ -116,13 +123,13 @@ def gee_status():
         'gee_initialized': GEE_INITIALIZED,
         'environment': {
             'gee_project': CONFIG['gee_project'],
-            'mapbox_configured': bool(CONFIG['mapbox_token'])
+            'mapbox_configured': bool(CONFIG['mapbox_token']),
+            'gee_credentials_set': bool(os.environ.get('GEE_CREDENTIALS'))
         }
     }
     
     if GEE_INITIALIZED:
         try:
-            # Test simple GEE operation
             test_image = ee.Image('NASA/NASADEM_HGT/001')
             test_info = test_image.getInfo()
             status['gee_test'] = {
@@ -195,7 +202,7 @@ def calculate_area(image, roi, scale=30, max_pixels=1e9):
     """Enhanced area calculation with detailed logging"""
     try:
         image_info = image.getInfo()
-        image_id = image_info.get('id', 'computed_image')  # Fallback to 'computed_image' if 'id' is missing
+        image_id = image_info.get('id', 'computed_image')
         logger.debug(f"Calculating area for image: {image_id}")
     except Exception as e:
         logger.warning(f"Failed to get image info: {str(e)}")
@@ -236,7 +243,6 @@ def load_datasets(roi, start_date):
     """Enhanced dataset loading with progress logging"""
     logger.info(f"Loading datasets for ROI and date: {start_date}")
     
-    # Sentinel-1
     logger.debug("Loading Sentinel-1 data...")
     s1 = ee.ImageCollection('COPERNICUS/S1_GRD') \
         .filterBounds(roi) \
@@ -245,16 +251,13 @@ def load_datasets(roi, start_date):
         .select('VV') \
         .limit(10)
     
-    # JRC Water
     logger.debug("Loading JRC water data...")
     jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence').clip(roi)
     
-    # Open Buildings
     logger.debug("Loading Open Buildings data...")
     open_buildings = ee.FeatureCollection('GOOGLE/Research/open-buildings/v3/polygons') \
         .filterBounds(roi).filter(ee.Filter.gte('confidence', 0.75))
     
-    # Land Cover
     logger.debug("Loading ESA WorldCover data...")
     land_cover = ee.Image('ESA/WorldCover/v100/2020').select('Map').clip(roi)
     
@@ -266,23 +269,18 @@ def process_flood_data(s1, jrc, land_cover, roi):
     """Enhanced flood data processing with detailed logging"""
     logger.info("Processing flood data...")
     
-    # Farmland classification
     logger.debug("Identifying farmland...")
     farmland = land_cover.eq(40).selfMask()
     
-    # Flood extent
     logger.debug("Calculating flood extent...")
     flood_extent = s1.mean().lt(-15).clip(roi)
     
-    # Permanent water
     logger.debug("Identifying permanent water...")
     permanent_water = jrc.gt(90)
     
-    # Flooded areas (excluding permanent water)
     logger.debug("Calculating flooded areas...")
     flooded_areas = flood_extent.subtract(permanent_water).selfMask().clip(roi)
     
-    # Flooded farmland
     logger.debug("Calculating flooded farmland...")
     flooded_farmland = farmland.updateMask(flooded_areas)
     
@@ -294,29 +292,24 @@ def process_flood_risk_map(roi, start_date, end_date):
     """Enhanced flood risk processing with detailed logging"""
     logger.info(f"Processing flood risk map from {start_date} to {end_date}")
     
-    # Precipitation data
     logger.debug("Processing CHIRPS precipitation data...")
     chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY') \
         .filterDate(start_date, end_date) \
         .sum() \
         .clip(roi)
     
-    # Terrain data
     logger.debug("Processing DEM and slope data...")
     dem = ee.Image('USGS/SRTMGL1_003').clip(roi)
     slope = ee.Terrain.slope(dem)
     
-    # Water data
     logger.debug("Processing JRC water data...")
     jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence').clip(roi)
     water = jrc.select('occurrence').gte(90)
     distance_to_water = water.fastDistanceTransform().sqrt().multiply(30).clip(roi)
     
-    # Land cover
     logger.debug("Processing land cover data...")
     lulc = ee.ImageCollection('ESA/WorldCover/v200').first().clip(roi)
     
-    # Calculate class breaks for each factor
     logger.debug("Calculating class breaks...")
     def get_class_breaks(image, percentiles):
         return image.reduceRegion(
@@ -331,7 +324,6 @@ def process_flood_risk_map(roi, start_date, end_date):
     precip_classes = get_class_breaks(chirps, [0, 20, 40, 60, 80, 100])
     distance_classes = get_class_breaks(distance_to_water, [0, 20, 40, 60, 80, 100])
     
-    # Reclassify each factor
     logger.debug("Reclassifying factors...")
     def reclassify(image, classes, inverse=False):
         reclass = ee.Image(0)
@@ -361,14 +353,13 @@ def process_flood_risk_map(roi, start_date, end_date):
         .where(lulc.eq(60), 8) \
         .where(lulc.eq(95), 6)
     
-    # Apply weights and combine
     logger.debug("Combining factors with weights...")
     weighted_factors = [
-        dem_reclass.multiply(0.10),    # Elevation
-        slope_reclass.multiply(0.20),  # Slope
-        precip_reclass.multiply(0.30), # Precipitation
-        distance_reclass.multiply(0.30),# Distance to water
-        lulc_reclass.multiply(0.10)    # Land cover
+        dem_reclass.multiply(0.10),
+        slope_reclass.multiply(0.20),
+        precip_reclass.multiply(0.30),
+        distance_reclass.multiply(0.30),
+        lulc_reclass.multiply(0.10)
     ]
     
     flood_risk = ee.Image(0)
@@ -382,10 +373,19 @@ def process_flood_risk_map(roi, start_date, end_date):
 
 @handle_gee_operation
 def get_flood_data(county_name, start_date, end_date):
-    """Enhanced flood data retrieval with detailed logging"""
+    """Enhanced flood data retrieval with caching"""
     logger.info(f"Getting flood data for {county_name} ({start_date} to {end_date})")
     
-    # Get county geometry
+    # Check cache
+    cache_key = f"{county_name}_{start_date}_{end_date}"
+    cache_file = Path(f"cache/{cache_key}_flood_data.json")
+    if cache_file.exists():
+        logger.info(f"Cache hit for {cache_key}")
+        with open(cache_file, 'r') as f:
+            return json.load(f)
+    
+    logger.debug(f"Cache miss for {cache_key}, processing data...")
+    
     logger.debug(f"Fetching county geometry for {county_name}")
     counties = ee.FeatureCollection(CONFIG['county_dataset']) \
         .filter(ee.Filter.eq('ADM1_EN', county_name))
@@ -398,26 +398,21 @@ def get_flood_data(county_name, start_date, end_date):
     roi = counties.geometry()
     logger.debug(f"ROI geometry: {roi.getInfo()}")
     
-    # Load datasets
     s1, jrc, open_buildings, land_cover = load_datasets(roi, start_date)
     
-    # Process flood data
     farmland, flooded_areas, flooded_farmland = process_flood_data(s1, jrc, land_cover, roi)
     
-    # Calculate areas
     logger.debug("Calculating areas...")
     flooded_area = calculate_area(flooded_areas, roi, scale=30)
     farmland_area = calculate_area(farmland, roi, scale=10)
     flooded_farmland_area = calculate_area(flooded_farmland, roi, scale=10)
     
-    # Building statistics
     logger.debug("Calculating building statistics...")
     total_buildings = open_buildings.size().getInfo()
     total_area = calculate_area(ee.Image(1), roi, scale=30)
     flood_area_proportion = flooded_area / total_area if total_area > 0 else 0
     flooded_buildings = int(total_buildings * flood_area_proportion)
     
-    # Flood risk map
     logger.debug("Generating flood risk map...")
     flood_risk_map = process_flood_risk_map(roi, start_date, end_date)
     flood_risk_url = get_visualization_url(
@@ -427,7 +422,6 @@ def get_flood_data(county_name, start_date, end_date):
         max_val=10
     )
     
-    # Prepare results
     result = {
         'flooded_area_km2': flooded_area,
         'total_buildings': total_buildings,
@@ -445,6 +439,12 @@ def get_flood_data(county_name, start_date, end_date):
             'gee_initialized': GEE_INITIALIZED
         }
     }
+    
+    # Cache result
+    cache_file.parent.mkdir(exist_ok=True)
+    with open(cache_file, 'w') as f:
+        json.dump(result, f)
+    logger.info(f"Cached flood data for {cache_key}")
     
     logger.info(f"Successfully processed flood data for {county_name}")
     return result
@@ -608,7 +608,7 @@ def view_logs():
     """Endpoint to view recent error logs"""
     try:
         with open('logs/error.log', 'r') as f:
-            logs = f.read().splitlines()[-100:]  # Get last 100 lines
+            logs = f.read().splitlines()[-100:]
         return jsonify({'logs': logs})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
