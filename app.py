@@ -69,12 +69,11 @@ def initialize_gee(max_retries=3, backoff_factor=2):
                 key_data=credentials_json
             )
             
-            # Enhanced initialization with timeout
+            # Initialize without http_timeout
             ee.Initialize(
                 credentials=credentials,
                 project=CONFIG['gee_project'],
-                opt_url='https://earthengine-highvolume.googleapis.com',
-                http_timeout=30
+                opt_url='https://earthengine-highvolume.googleapis.com'
             )
             
             # Test connection with a simple operation
