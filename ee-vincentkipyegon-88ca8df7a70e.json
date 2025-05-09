@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "ee-vincentkipyegon",
+  "private_key_id": "88ca8df7a70ec6a13aabe95e59988d0ecc97f3f2",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCq+N4TKhC3v/Z3\nr44xjNHiv+JuDG2jVfok329SOB5viDXZ1BlzIXrI41NCF7laNMDVFtWZoZSPy0AB\ncMZojKkpQI29timbeUhirAop0VvXpxlOFhQSvhSzDbm+ETLKebUAkKgMfMKyVZ/q\nsTQCa4ADNSId7qfLrZNpnJfX/lVkKWd6AdWNqVL8Of2RqTylTYB1tgG4KI91VXuF\nhtnZdNr2QejlwVlafGXFml8GV5EhmDx0HjtcOt0ByHEHDQdq/ya+lJthkSkhARO7\nbuRHBdoQMtCmGyMQYtVtbNO///wj8+SAfMxn1ZPtDbbpSdLUldcEJjyNs2z3kh9O\nFiL0n/8DAgMBAAECggEAS8ey5tumPUugerwdUmkQPmi+e/iWP+dD0EQYm2C0XMsK\n01nnTdhxC8l2hbzuMsVfExPj6QxtRK7Z18mcp4pxEA/Ew2mSV48SPmnyt0ZMZvFx\njeLLUuNdWV+kDFKjKIt5Zp63XZGO2myJTQTuAISVYNaUIKA/T0/IHu+BfgME5jeZ\nBC9UIRC0GbbFTun0pZdaror0HiX0EBIiAE6XXEUixmWCdi3cLQ7H0rlOVdSW7qho\ncJtr2x1hK3QMdawBipKjmZd+jINQY96dJm/di+Yv2G0hIwie/MRAbElW9bVN11lu\nAcr7Tt42KnTfp5hS8mu1njBFP+Ift4btQbfU9ia9wQKBgQDscfBmsjWnZZ9eg2N7\nZAWi2ySS1bv4rklj3BMDf/Gw9GLVtwzCILepDi3xgn78/cBS5q0K/j3E0nnAIhdc\nN6IEWvQb7RZoFFfmhO0tM0sXyWGTG0ZV8Ix8XNfyAECDBzK1EdHFRBDqm9UDpGlh\nR/ynXU0MmACUL+dDhU+UPJux3wKBgQC5HLkErLxQedAkeD8YnQqqb7j2Yii+oTPW\nor/X8i8zxrdNmQXKYsaZBzlfoiMPNhwY/iTdQX6Ahfs3DF4Fh14jMqt+yP9UMs/x\n3+IzM5B+dslmkv6Flfkzn1Ys2BrQoyREReh2YPPIwZP7/WLIdNmya4CsrhJ0J/zi\nDa8FUwW/XQKBgB+0l5vtwawUwG4YCDr/ipHv+NOHvZD3LfgqBpKtkWc9HhOyXA+b\n+4S71gVQjl62WBfFvuZ+eSHvZ0wQRjmjbCJRX/JutFZ4g+DxaixpeGRUKLVlLuVP\nQEdc28gjqILpcC8/mHVvTyVmiAXZAhh9Yq++nxpVN56nXcd8FNO33NjZAoGANu0U\n4RQ4FFDwt8GOR0lhvszDvyfFGztN3GQSNItCAkT2YuoC09iXQRTpqzy61mqhz7Cp\nU5V5ab1Xmy/qPg26mwsP4+DUEjG5jfV2cubb+wpYHD2FlDG57d1bfpbo7ftaaX+s\nyGNgMrNtq5m10/EIH27SkWpdQ2YSHSkeQ6As1mkCgYAgYfPVqhjV6Sx7yQYDi5wQ\nceQtK2A1o8Ge/z4nPl5mCU4fum4mVQmMlaRWuxEbh8wIyHgUKdEjK/qGNpFXqXqm\nuxXIRcLq6RoibxLH3TD/pQuq7gSIUeEVY/HA9gceTcazyt2SVJLSjANLfAWFz2Dx\nPiP/VT6T/OXTrghEyYFw3w==\n-----END PRIVATE KEY-----\n",
+  "client_email": "flood-risk-app@ee-vincentkipyegon.iam.gserviceaccount.com",
+  "client_id": "110695312721785116787",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/flood-risk-app%40ee-vincentkipyegon.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
