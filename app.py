@@ -193,7 +193,13 @@ def handle_gee_operation(f):
 @handle_gee_operation
 def calculate_area(image, roi, scale=30, max_pixels=1e9):
     """Enhanced area calculation with detailed logging"""
-    logger.debug(f"Calculating area for image: {image.getInfo()['id']}")
+    try:
+        image_info = image.getInfo()
+        image_id = image_info.get('id', 'computed_image')  # Fallback to 'computed_image' if 'id' is missing
+        logger.debug(f"Calculating area for image: {image_id}")
+    except Exception as e:
+        logger.warning(f"Failed to get image info: {str(e)}")
+        image_id = 'unknown_image'
     
     area_image = ee.Image.pixelArea()
     area_result = area_image.multiply(image).reduceRegion(
