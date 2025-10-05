@@ -219,6 +219,63 @@
             font-weight: bold;
             margin-bottom: 5px;
         }
+
+        /* Personal Info Section */
+        #personal-info {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 6px;
+            background: rgba(213, 235, 232, 0.9);
+            padding: 5px 8px;
+            border-radius: 5px;
+            border: 1px solid var(--button-bg);
+            z-index: 3;
+        }
+
+        #personal-info img {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid var(--button-bg);
+        }
+
+        #personal-info p {
+            font-size: 9px;
+            margin: 0;
+            font-weight: bold;
+            color: var(--text-color);
+        }
+
+        .social-links {
+            display: flex;
+            gap: 6px;
+        }
+
+        .social-links a {
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+            color: var(--button-bg);
+            font-size: 9px;
+            transition: color 0.3s ease;
+        }
+
+        .social-links a:hover {
+            color: var(--button-hover);
+        }
+
+        .social-links img {
+            width: 10px;
+            height: 10px;
+            margin-right: 3px;
+            border: none;
+        }
     </style>
 </head>
 <body>
@@ -275,6 +332,19 @@
 
     <div id="legend"></div>
     <div id="flood-risk-legend"></div>
+
+<div id="personal-info">
+    <img src="{{ url_for('static', filename='profile.jpg') }}" alt="Profile Picture">
+    <p>Let's Connect:</p>
+    <div class="social-links">
+        <a href="https://www.linkedin.com/in/pyexxy" target="_blank">
+            <img src="https://cdn-icons-png.flaticon.com/16/174/174857.png" alt="LinkedIn Icon"> LinkedIn
+        </a>
+        <a href="mailto:vincentkipyegon02@gmail.com">
+            <img src="https://cdn-icons-png.flaticon.com/16/561/561127.png" alt="Email Icon"> Email
+        </a>
+    </div>
+</div>
 
     <script>
         // Configuration
