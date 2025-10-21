@@ -109,7 +109,6 @@ def initialize_gee(max_retries=3, backoff_factor=2):
             logger.debug(f"Using service account: {credentials_dict['client_email']}")
 
             # Create credentials object
-            # Important: Use the private_key from the dict, not the whole JSON
             credentials = ee.ServiceAccountCredentials(
                 email=credentials_dict['client_email'],
                 key_data=credentials_dict['private_key']
@@ -135,7 +134,7 @@ def initialize_gee(max_retries=3, backoff_factor=2):
             logger.error(f"Invalid JSON in credentials (attempt {attempt + 1}): {str(e)}")
         except FileNotFoundError as e:
             logger.error(f"Credentials file not found (attempt {attempt + 1}): {str(e)}")
-            break  # Don't retry if file doesn't exist
+            break
         except ee.ee_exception.EEException as e:
             logger.error(f"GEE API error (attempt {attempt + 1}): {str(e)}")
         except googleapiclient.errors.HttpError as e:
@@ -251,27 +250,59 @@ def handle_gee_operation(f):
 
 @handle_gee_operation
 def calculate_area(image, roi, scale=30, max_pixels=1e9):
-    """Enhanced area calculation with detailed logging"""
+    """Enhanced area calculation with validation"""
     try:
-        image_info = image.getInfo()
-        image_id = image_info.get('id', 'computed_image')
-        logger.debug(f"Calculating area for image: {image_id}")
+        # Add bounds clipping to ensure image is within ROI
+        image = image.clip(roi)
+
+        # Check if image has any valid pixels
+        pixel_count = image.reduceRegion(
+            reducer=ee.Reducer.count(),
+            geometry=roi,
+            scale=scale,
+            maxPixels=max_pixels
+        )
+
+        count_value = pixel_count.values().get(0)
+        if count_value is None:
+            count_val = 0
+        else:
+            count_val = count_value.getInfo()
+
+        logger.debug(f"Valid pixel count: {count_val}")
+
+        if count_val == 0:
+            logger.warning("No valid pixels found in image for area calculation")
+            return 0.0
+
+        # Calculate area
+        area_image = ee.Image.pixelArea()
+        area_result = area_image.multiply(image).reduceRegion(
+            reducer=ee.Reducer.sum(),
+            geometry=roi,
+            scale=scale,
+            maxPixels=max_pixels
+        )
+
+        area_value = area_result.values().get(0)
+        if area_value is None:
+            logger.warning("Area calculation returned None")
+            return 0.0
+
+        area = area_value.getInfo()
+        if area is None or area == 0:
+            logger.warning(f"Area calculation returned {area}")
+            return 0.0
+
+        area_km2 = area / 1e6
+        logger.debug(f"Area calculation complete: {area_km2} km²")
+
+        return round(area_km2, 2)
+
     except Exception as e:
-        logger.warning(f"Failed to get image info: {str(e)}")
-        image_id = 'unknown_image'
-
-    area_image = ee.Image.pixelArea()
-    area_result = area_image.multiply(image).reduceRegion(
-        reducer=ee.Reducer.sum(),
-        geometry=roi,
-        scale=scale,
-        maxPixels=max_pixels
-    )
-
-    area = area_result.get('area').getInfo() / 1e6
-    logger.debug(f"Area calculation complete: {area} km²")
-
-    return round(area, 2)
+        logger.error(f"Error in calculate_area: {str(e)}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        return 0.0
 
 
 @handle_gee_operation
@@ -282,7 +313,7 @@ def get_visualization_url(image, palette, min_val=0, max_val=1):
     vis_params = {
         'min': min_val,
         'max': max_val,
-        'palette': palette
+        'palette': palette if isinstance(palette, list) else [palette]
     }
 
     map_id = image.visualize(**vis_params).getMapId()
@@ -293,27 +324,48 @@ def get_visualization_url(image, palette, min_val=0, max_val=1):
 
 
 @handle_gee_operation
-def load_datasets(roi, start_date):
-    """Enhanced dataset loading with progress logging"""
-    logger.info(f"Loading datasets for ROI and date: {start_date}")
+def load_datasets(roi, start_date, end_date):
+    """Enhanced dataset loading with better date handling"""
+    logger.info(f"Loading datasets for ROI ({start_date} to {end_date})")
 
+    # Extend date range to ensure we get data
     logger.debug("Loading Sentinel-1 data...")
     s1 = ee.ImageCollection('COPERNICUS/S1_GRD') \
         .filterBounds(roi) \
-        .filterDate(start_date, ee.Date(start_date).advance(1, 'month')) \
+        .filterDate(start_date, end_date) \
         .filter(ee.Filter.eq('instrumentMode', 'IW')) \
-        .select('VV') \
-        .limit(10)
+        .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV')) \
+        .select('VV')
+
+    # Log image count
+    s1_count = s1.size().getInfo()
+    logger.info(f"Found {s1_count} Sentinel-1 images")
+
+    if s1_count == 0:
+        logger.warning("No Sentinel-1 images found for date range, using wider range")
+        # Try a wider date range
+        s1 = ee.ImageCollection('COPERNICUS/S1_GRD') \
+            .filterBounds(roi) \
+            .filterDate('2020-01-01', '2024-12-31') \
+            .filter(ee.Filter.eq('instrumentMode', 'IW')) \
+            .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV')) \
+            .select('VV') \
+            .sort('system:time_start', False) \
+            .limit(10)
+
+        s1_count = s1.size().getInfo()
+        logger.info(f"Found {s1_count} Sentinel-1 images with wider range")
 
     logger.debug("Loading JRC water data...")
     jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence').clip(roi)
 
     logger.debug("Loading Open Buildings data...")
     open_buildings = ee.FeatureCollection('GOOGLE/Research/open-buildings/v3/polygons') \
-        .filterBounds(roi).filter(ee.Filter.gte('confidence', 0.75))
+        .filterBounds(roi) \
+        .filter(ee.Filter.gte('confidence', 0.75))
 
     logger.debug("Loading ESA WorldCover data...")
-    land_cover = ee.Image('ESA/WorldCover/v100/2020').select('Map').clip(roi)
+    land_cover = ee.Image('ESA/WorldCover/v200/2021').select('Map').clip(roi)
 
     logger.info("All datasets loaded successfully")
     return s1, jrc, open_buildings, land_cover
@@ -321,23 +373,41 @@ def load_datasets(roi, start_date):
 
 @handle_gee_operation
 def process_flood_data(s1, jrc, land_cover, roi):
-    """Enhanced flood data processing with detailed logging"""
+    """Enhanced flood data processing with adaptive thresholding"""
     logger.info("Processing flood data...")
 
     logger.debug("Identifying farmland...")
     farmland = land_cover.eq(40).selfMask()
 
-    logger.debug("Calculating flood extent...")
-    flood_extent = s1.mean().lt(-15).clip(roi)
+    logger.debug("Calculating flood extent with adaptive threshold...")
+    # Use composite of images
+    s1_composite = s1.mean()
+
+    # Calculate statistics to determine appropriate threshold
+    stats = s1_composite.reduceRegion(
+        reducer=ee.Reducer.percentile([10, 50, 90]),
+        geometry=roi,
+        scale=100,
+        maxPixels=1e9
+    ).getInfo()
+
+    logger.debug(f"SAR statistics: {stats}")
+
+    # Use adaptive threshold based on data distribution
+    # Typically flooded areas have lower backscatter
+    threshold = stats.get('VV_p10', -15) if stats else -15
+    logger.info(f"Using SAR threshold: {threshold}")
+
+    flood_extent = s1_composite.lt(threshold).clip(roi)
 
     logger.debug("Identifying permanent water...")
-    permanent_water = jrc.gt(90)
+    permanent_water = jrc.gte(75)  # Lowered from 90 to capture more water
 
     logger.debug("Calculating flooded areas...")
-    flooded_areas = flood_extent.subtract(permanent_water).selfMask().clip(roi)
+    flooded_areas = flood_extent.And(permanent_water.Not()).selfMask().clip(roi)
 
     logger.debug("Calculating flooded farmland...")
-    flooded_farmland = farmland.updateMask(flooded_areas)
+    flooded_farmland = farmland.And(flooded_areas).selfMask()
 
     logger.info("Flood data processing complete")
     return farmland, flooded_areas, flooded_farmland
@@ -345,7 +415,7 @@ def process_flood_data(s1, jrc, land_cover, roi):
 
 @handle_gee_operation
 def process_flood_risk_map(roi, start_date, end_date):
-    """Enhanced flood risk processing with detailed logging"""
+    """Enhanced flood risk processing with proper normalization"""
     logger.info(f"Processing flood risk map from {start_date} to {end_date}")
 
     logger.debug("Processing CHIRPS precipitation data...")
@@ -360,11 +430,11 @@ def process_flood_risk_map(roi, start_date, end_date):
 
     logger.debug("Processing JRC water data...")
     jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence').clip(roi)
-    water = jrc.select('occurrence').gte(90)
-    distance_to_water = water.fastDistanceTransform().sqrt().multiply(30).clip(roi)
+    water = jrc.gte(75)
+    distance_to_water = water.fastDistanceTransform().sqrt().multiply(ee.Image.pixelArea().sqrt()).clip(roi)
 
     logger.debug("Processing land cover data...")
-    lulc = ee.ImageCollection('ESA/WorldCover/v200').first().clip(roi)
+    lulc = ee.Image('ESA/WorldCover/v200/2021').clip(roi)
 
     logger.debug("Calculating class breaks...")
 
@@ -372,8 +442,9 @@ def process_flood_risk_map(roi, start_date, end_date):
         return image.reduceRegion(
             reducer=ee.Reducer.percentile(percentiles),
             geometry=roi,
-            scale=30,
-            maxPixels=1e13
+            scale=100,
+            maxPixels=1e13,
+            bestEffort=True
         ).values()
 
     dem_classes = get_class_breaks(dem, [0, 20, 40, 60, 80, 100])
@@ -388,12 +459,10 @@ def process_flood_risk_map(roi, start_date, end_date):
         weights = [10, 8, 6, 4, 2] if not inverse else [2, 4, 6, 8, 10]
 
         for i in range(1, 6):
-            lower = classes.getNumber(i - 1)
-            upper = classes.getNumber(i)
-            reclass = reclass.where(
-                image.gt(lower).And(image.lte(upper)),
-                weights[i - 1]
-            )
+            lower = ee.Number(classes.get(i - 1))
+            upper = ee.Number(classes.get(i))
+            mask = image.gt(lower).And(image.lte(upper))
+            reclass = reclass.where(mask, weights[i - 1])
 
         return reclass
 
@@ -402,54 +471,65 @@ def process_flood_risk_map(roi, start_date, end_date):
     precip_reclass = reclassify(chirps, precip_classes, inverse=True)
     distance_reclass = reclassify(distance_to_water, distance_classes)
 
-    lulc_reclass = lulc \
-        .where(lulc.eq(10), 4) \
-        .where(lulc.eq(20), 6) \
-        .where(lulc.eq(30), 6) \
+    lulc_reclass = ee.Image(0) \
+        .where(lulc.eq(10), 2) \
+        .where(lulc.eq(20), 4) \
+        .where(lulc.eq(30), 4) \
         .where(lulc.eq(40), 6) \
         .where(lulc.eq(50), 10) \
         .where(lulc.eq(60), 8) \
+        .where(lulc.eq(80), 10) \
+        .where(lulc.eq(90), 6) \
         .where(lulc.eq(95), 6)
 
     logger.debug("Combining factors with weights...")
-    weighted_factors = [
-        dem_reclass.multiply(0.10),
-        slope_reclass.multiply(0.20),
-        precip_reclass.multiply(0.30),
-        distance_reclass.multiply(0.30),
-        lulc_reclass.multiply(0.10)
-    ]
-
-    flood_risk = ee.Image(0)
-    for factor in weighted_factors:
-        flood_risk = flood_risk.add(factor)
+    flood_risk = dem_reclass.multiply(0.10) \
+        .add(slope_reclass.multiply(0.20)) \
+        .add(precip_reclass.multiply(0.30)) \
+        .add(distance_reclass.multiply(0.30)) \
+        .add(lulc_reclass.multiply(0.10))
 
     flood_risk = flood_risk.clip(roi)
+
+    # Calculate actual min/max for visualization
+    risk_stats = flood_risk.reduceRegion(
+        reducer=ee.Reducer.minMax(),
+        geometry=roi,
+        scale=100,
+        maxPixels=1e9,
+        bestEffort=True
+    ).getInfo()
+
+    logger.info(f"Flood risk statistics: {risk_stats}")
+
     logger.info("Flood risk map processing complete")
 
-    return flood_risk
+    return flood_risk, risk_stats
 
 
 @handle_gee_operation
 def get_flood_data(county_name, start_date, end_date):
-    """Enhanced flood data retrieval with caching"""
+    """Enhanced flood data retrieval with better error handling"""
     logger.info(f"Getting flood data for {county_name} ({start_date} to {end_date})")
 
     # Check cache
     cache_key = f"{county_name}_{start_date}_{end_date}"
     cache_file = Path(f"cache/{cache_key}_flood_data.json")
-    if cache_file.exists():
-        logger.info(f"Cache hit for {cache_key}")
-        with open(cache_file, 'r') as f:
-            return json.load(f)
 
-    logger.debug(f"Cache miss for {cache_key}, processing data...")
+    # Disable cache for debugging - remove this later
+    # if cache_file.exists():
+    #     logger.info(f"Cache hit for {cache_key}")
+    #     with open(cache_file, 'r') as f:
+    #         return json.load(f)
+
+    logger.debug(f"Processing fresh data for {cache_key}")
 
     logger.debug(f"Fetching county geometry for {county_name}")
     counties = ee.FeatureCollection(CONFIG['county_dataset']) \
         .filter(ee.Filter.eq('ADM1_EN', county_name))
 
-    if counties.size().getInfo() == 0:
+    county_size = counties.size().getInfo()
+    if county_size == 0:
         error_msg = f"No counties found for {county_name}"
         logger.error(error_msg)
         return {'error': error_msg}, 404
@@ -457,28 +537,33 @@ def get_flood_data(county_name, start_date, end_date):
     roi = counties.geometry()
     logger.debug(f"ROI geometry retrieved successfully")
 
-    s1, jrc, open_buildings, land_cover = load_datasets(roi, start_date)
+    s1, jrc, open_buildings, land_cover = load_datasets(roi, start_date, end_date)
 
     farmland, flooded_areas, flooded_farmland = process_flood_data(s1, jrc, land_cover, roi)
 
     logger.debug("Calculating areas...")
-    flooded_area = calculate_area(flooded_areas, roi, scale=30)
-    farmland_area = calculate_area(farmland, roi, scale=10)
-    flooded_farmland_area = calculate_area(flooded_farmland, roi, scale=10)
+    flooded_area = calculate_area(flooded_areas, roi, scale=100)
+    farmland_area = calculate_area(farmland, roi, scale=100)
+    flooded_farmland_area = calculate_area(flooded_farmland, roi, scale=100)
 
     logger.debug("Calculating building statistics...")
     total_buildings = open_buildings.size().getInfo()
-    total_area = calculate_area(ee.Image(1), roi, scale=30)
+    total_area = calculate_area(ee.Image(1), roi, scale=100)
     flood_area_proportion = flooded_area / total_area if total_area > 0 else 0
     flooded_buildings = int(total_buildings * flood_area_proportion)
 
     logger.debug("Generating flood risk map...")
-    flood_risk_map = process_flood_risk_map(roi, start_date, end_date)
+    flood_risk_map, risk_stats = process_flood_risk_map(roi, start_date, end_date)
+
+    # Use actual min/max from data
+    risk_min = risk_stats.get('constant_min', 0)
+    risk_max = risk_stats.get('constant_max', 10)
+
     flood_risk_url = get_visualization_url(
         flood_risk_map,
-        ['blue', 'green', 'yellow', 'orange', 'red'],
-        min_val=2,
-        max_val=10
+        ['#0000FF', '#00FF00', '#FFFF00', '#FFA500', '#FF0000'],
+        min_val=risk_min,
+        max_val=risk_max
     )
 
     result = {
@@ -487,15 +572,16 @@ def get_flood_data(county_name, start_date, end_date):
         'flooded_buildings': flooded_buildings,
         'farmland_area_km2': farmland_area,
         'flooded_farmland_area_km2': flooded_farmland_area,
-        'flood_layer_url': get_visualization_url(flooded_areas, 'red'),
-        'farmland_layer_url': get_visualization_url(farmland, 'green'),
-        'flooded_farmland_url': get_visualization_url(flooded_farmland, 'orange'),
+        'flood_layer_url': get_visualization_url(flooded_areas, ['#FF0000']),
+        'farmland_layer_url': get_visualization_url(farmland, ['#00FF00']),
+        'flooded_farmland_url': get_visualization_url(flooded_farmland, ['#FFA500']),
         'flooded_buildings_geojson': {'type': 'FeatureCollection', 'features': []},
         'county_center': counties.geometry().centroid().coordinates().getInfo(),
         'flood_risk_url': flood_risk_url,
         'metadata': {
             'processing_time': datetime.now().isoformat(),
-            'gee_initialized': GEE_INITIALIZED
+            'gee_initialized': GEE_INITIALIZED,
+            'risk_stats': risk_stats
         }
     }
 
@@ -506,6 +592,9 @@ def get_flood_data(county_name, start_date, end_date):
     logger.info(f"Cached flood data for {cache_key}")
 
     logger.info(f"Successfully processed flood data for {county_name}")
+    logger.info(
+        f"Results: Flooded={flooded_area}km², Farmland={farmland_area}km², Flooded Farmland={flooded_farmland_area}km²")
+
     return result
 
 
