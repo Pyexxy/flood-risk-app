@@ -146,16 +146,21 @@ def calculate_area_fast(image, roi, scale=150):
         return 0.0
 
 
-@handle_gee_operation
 def get_vis_url(image, palette, min_val=0, max_val=1):
-    """Generate visualization URL"""
-    vis_params = {
-        'min': min_val,
-        'max': max_val,
-        'palette': palette if isinstance(palette, list) else [palette]
-    }
-    map_id = image.visualize(**vis_params).getMapId()
-    return map_id['tile_fetcher'].url_format
+    """Generate visualization URL - without decorator to avoid tuple return"""
+    try:
+        vis_params = {
+            'min': min_val,
+            'max': max_val,
+            'palette': palette if isinstance(palette, list) else [palette]
+        }
+        map_id = image.visualize(**vis_params).getMapId()
+        url = map_id['tile_fetcher'].url_format
+        logger.info(f"Generated URL: {url[:80]}...")
+        return url
+    except Exception as e:
+        logger.error(f"Vis URL error: {str(e)}")
+        return None
 
 
 @handle_gee_operation
